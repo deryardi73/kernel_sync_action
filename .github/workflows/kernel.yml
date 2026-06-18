@@ -1,0 +1,56 @@
+name: Sync Kernel Source with Full History
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Maximize Runner Storage Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          df -h
+
+      - name: Install Repo Tool
+        run: |
+          mkdir -p ~/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Repo Init & Sync (Fetch Full History)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Initialize Google manifest (without --depth=1 to keep the full history)
+          # Note: If you need a specific branch, add the -b branch_name parameter
+          repo init -u https://android.googlesource.com/kernel/manifest -b common-android15-6.6-2025-08
+          
+          # Sync all repositories to the local runner
+          repo sync -j$(nproc) --force-sync
+
+      - name: Push Main Kernel Source with Original History
+        run: |
+          # 1. Enter the git directory of the main kernel source.
+          # In Android (AOSP) kernels, the main kernel is usually in the 'common' folder.
+          # Change 'common' to the appropriate kernel folder name if the manifest differs.
+          cd common
+          
+          # 2. Because we are ONLY inside the 'common' folder, the 'prebuilts' folder 
+          # is automatically EXCLUDED since it is located outside this folder.
+          
+          # 3. Connect this original Google git folder to your GitHub repository.
+          git remote add github "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          
+          # 4. Push to a new branch named 'kernel-source'.
+          # We do not push to 'main' to avoid conflicts with this workflow file.
+          # This process DOES NOT use force push (-f), keeping the commit history safe.
+          git push github HEAD:refs/heads/kernel-source
